@@ -30,6 +30,7 @@ export interface RuntimeInfo {
   error: string | null;
   ollamaBaseUrl: string | null;
   usingGpu: boolean | null;
+  resumeNote?: string | null;
 }
 
 export interface Settings {
@@ -83,6 +84,7 @@ export interface ChatStreamEvent {
   delta: string;
   done: boolean;
   error: string | null;
+  reset?: boolean;
 }
 
 export interface KnowledgeFileInfo {

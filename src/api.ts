@@ -19,6 +19,7 @@ export const api = {
     invoke<SpaceRequirement>("get_space_requirement", { driveLetter }),
   getRuntime: () => invoke<RuntimeInfo>("get_runtime"),
   loadModel: (driveLetter: string) => invoke<RuntimeInfo>("load_model", { driveLetter }),
+  resumeExisting: () => invoke<RuntimeInfo>("resume_existing"),
   removeModel: () => invoke<RuntimeInfo>("remove_model"),
   getSettings: () => invoke<Settings>("get_settings"),
   updateSettings: (patch: Settings) => invoke<Settings>("update_settings", { patch }),

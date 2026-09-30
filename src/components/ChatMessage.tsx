@@ -23,9 +23,11 @@ function CopyButton({ text }: { text: string }) {
 
 export function MessageBubble({
   message,
+  generating,
   onSaveScript,
 }: {
   message: ChatMessage;
+  generating?: boolean;
   onSaveScript?: (filename: string, content: string) => void;
 }) {
   const isUser = message.role === "user";
@@ -47,6 +49,12 @@ export function MessageBubble({
           {!isUser && message.content ? <CopyButton text={message.content} /> : null}
         </div>
         <div className="prose prose-invert max-w-none text-[0.95rem] leading-relaxed">
+          {generating ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
+              Generating response
+            </div>
+          ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
@@ -90,6 +98,7 @@ export function MessageBubble({
           >
             {message.content || (isUser ? "" : "...")}
           </ReactMarkdown>
+          )}
         </div>
       </div>
     </div>

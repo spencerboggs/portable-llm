@@ -123,11 +123,18 @@ fn web_search(query: &str) -> ToolResult {
                     }
                 }
                 if parts.is_empty() {
+                    if let Some(html_hits) = search_html(query) {
+                        return ToolResult {
+                            name: "web_search".into(),
+                            ok: true,
+                            content: html_hits,
+                        };
+                    }
                     ToolResult {
                         name: "web_search".into(),
                         ok: true,
                         content: format!(
-                            "No structured results for '{query}'. Try fetch_url with a specific page."
+                            "The web search ran, but there were no snippets for '{query}'."
                         ),
                     }
                 } else {
@@ -149,6 +156,40 @@ fn web_search(query: &str) -> ToolResult {
             ok: false,
             content: format!("Network error: {e}"),
         },
+    }
+}
+
+fn search_html(query: &str) -> Option<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .build()
+        .ok()?;
+    let url = format!(
+        "https://html.duckduckgo.com/html/?q={}",
+        urlencoding_encode(query)
+    );
+    let page = client.get(url).send().ok()?.text().ok()?;
+    let snippet = regex::Regex::new(r#"(?s)class="result__snippet"[^>]*>(.*?)</a>"#).ok()?;
+    let tags = regex::Regex::new(r"<[^>]+>").ok()?;
+    let mut lines = Vec::new();
+    for cap in snippet.captures_iter(&page).take(6) {
+        let raw = cap.get(1)?.as_str();
+        let clean = tags.replace_all(raw, " ");
+        let clean = clean
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#x27;", "'")
+            .replace("&nbsp;", " ");
+        let clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !clean.is_empty() {
+            lines.push(format!("- {clean}"));
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
     }
 }
 
@@ -229,17 +270,54 @@ fn urlencoding_encode(s: &str) -> String {
 
 pub fn tool_definitions(internet_enabled: bool) -> String {
     if !internet_enabled {
-        return "No internet tools are currently enabled.".into();
+        return r#"Internet tools are OFF for this message.
+You cannot search or open web pages right now.
+If the user asks for live information, news, a website, or anything that needs the internet, tell them they can turn internet tools on in the Settings tab.
+Do not say internet access is permanently disabled, and do not say it cannot be turned on."#
+            .into();
     }
-    r#"Available tools (request with a JSON block when needed):
-1) web_search - arguments: {"query":"..."}
-2) fetch_url - arguments: {"url":"https://..."}
+    r#"Internet tools are ON for this message.
+You can call web_search and fetch_url. Use them when the question needs current or online information.
+Do not claim you have no internet while these tools are on.
+Do not invent tool results. Wait for the tool result, then answer the user."#
+        .into()
+}
 
-To request a tool, output ONLY:
-```tool
-{"name":"web_search","arguments":{"query":"..."}}
-```
-Do not invent tool results. Wait for the application to return them.
-"#
-    .into()
+pub fn ollama_tool_specs() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": "Search the web and return short result snippets.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "fetch_url",
+                "description": "Download the text of one http or https page.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "Full http or https URL"
+                        }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }
+    ])
 }

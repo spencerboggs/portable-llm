@@ -29,6 +29,7 @@ pub fn run() {
             commands::get_space_requirement,
             commands::get_runtime,
             commands::load_model,
+            commands::resume_existing,
             commands::remove_model,
             commands::get_settings,
             commands::update_settings,

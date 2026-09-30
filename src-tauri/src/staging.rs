@@ -106,6 +106,28 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
                 .into(),
         );
     }
+
+    let staging = staging_path_for(drive_letter);
+    let fingerprint = setup_fingerprint(state);
+    let existing = read_manifest(&staging.join("manifest.json"));
+    let same_setup = existing
+        .as_ref()
+        .map(|m| !fingerprint.is_empty() && m.setup_fingerprint == fingerprint)
+        .unwrap_or(false);
+
+    if same_setup {
+        logging::info(
+            &state.usb_root,
+            format!("Reusing matching install at {}", path_str(&staging)),
+        );
+        update_progress(
+            state,
+            "Existing install matches this USB. Starting Ollama",
+            80,
+        );
+        return activate_staged(state, drive_letter, &staging);
+    }
+
     if !req.enough_space {
         return Err(format!(
             "Insufficient storage. Required: {}. Available: {}. Please select another drive.",
@@ -114,7 +136,16 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
         ));
     }
 
-    let staging = staging_path_for(drive_letter);
+    if existing.is_some() {
+        logging::info(
+            &state.usb_root,
+            format!(
+                "Replacing host install that does not match this USB at {}",
+                path_str(&staging)
+            ),
+        );
+    }
+
     update_progress(state, "Checking storage", 5);
 
     if staging.exists() {
@@ -194,6 +225,7 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
         created_at: DateTime::<Utc>::from(SystemTime::now()).to_rfc3339(),
         portable_mode: settings.portable_mode,
         created_paths,
+        setup_fingerprint: fingerprint,
     };
     let manifest_path = staging.join("manifest.json");
     std::fs::write(
@@ -203,13 +235,24 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
     .map_err(|e| e.to_string())?;
 
     update_progress(state, "Starting Ollama", 80);
+    activate_staged(state, drive_letter, &staging)
+}
+
+fn activate_staged(
+    state: &AppState,
+    drive_letter: &str,
+    staging: &Path,
+) -> Result<RuntimeInfo, String> {
+    let settings = state.settings.lock().clone();
+    let runtime_dst = staging.join("runtime");
+    let model_dst = staging.join("model");
     let model_dir = if model_dst.exists() {
         model_dst
     } else {
         state.usb_root.join("model")
     };
 
-    let base_url = crate::ollama::start_ollama(state, &runtime_dst, &model_dir, &staging)?;
+    let base_url = crate::ollama::start_ollama(state, &runtime_dst, &model_dir, staging)?;
 
     update_progress(state, "Verifying model", 92);
     crate::ollama::wait_for_api(&base_url, 60)?;
@@ -218,16 +261,134 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
     let mut rt = state.runtime.lock();
     rt.status = LoadStatus::Running;
     rt.target_drive = Some(drive_letter.to_string());
-    rt.staging_path = Some(path_str(&staging));
+    rt.staging_path = Some(path_str(staging));
     rt.progress_message = "Ready.".into();
     rt.progress_percent = 100;
     rt.error = None;
+    rt.resume_note = None;
     rt.ollama_base_url = Some(base_url);
     rt.model_name = settings.model_name.clone();
     rt.using_gpu = Some(crate::drives::detect_hardware().gpu_acceleration_available);
 
     logging::info(&state.usb_root, "Model loaded successfully");
     Ok(rt.clone())
+}
+
+pub fn resume_existing(state: &AppState) -> Result<RuntimeInfo, String> {
+    {
+        let status = state.runtime.lock().status.clone();
+        if status == LoadStatus::Running || status == LoadStatus::Loading {
+            return Ok(state.runtime.lock().clone());
+        }
+    }
+
+    update_progress(state, "Looking for an existing PortableLLM folder", 15);
+    let fingerprint = setup_fingerprint(state);
+    let drives = crate::drives::list_drives().unwrap_or_default();
+    let mut matches: Vec<(String, PathBuf)> = Vec::new();
+    let mut mismatches: Vec<String> = Vec::new();
+
+    for drive in drives {
+        if drive.drive_type != "Fixed" || drive.is_removable || !drive.is_ready {
+            continue;
+        }
+        let staging = staging_path_for(&drive.letter);
+        let Some(manifest) = read_manifest(&staging.join("manifest.json")) else {
+            continue;
+        };
+        if !fingerprint.is_empty() && manifest.setup_fingerprint == fingerprint {
+            matches.push((drive.letter, staging));
+        } else {
+            mismatches.push(drive.letter);
+        }
+    }
+
+    if matches.is_empty() {
+        let mut rt = state.runtime.lock();
+        if rt.status == LoadStatus::Loading {
+            rt.status = LoadStatus::NotLoaded;
+            rt.progress_message.clear();
+            rt.progress_percent = 0;
+        }
+        rt.resume_note = if mismatches.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "Found PortableLLM on {} but it does not match this USB. Load Model will replace it.",
+                mismatches.join(", ")
+            ))
+        };
+        return Ok(rt.clone());
+    }
+
+    let preferred = state.settings.lock().preferred_drive.clone();
+    let (letter, staging) = matches
+        .iter()
+        .find(|(letter, _)| preferred.as_ref() == Some(letter))
+        .or_else(|| matches.first())
+        .map(|(letter, staging)| (letter.clone(), staging.clone()))
+        .ok_or_else(|| "No matching install".to_string())?;
+
+    logging::info(
+        &state.usb_root,
+        format!("Resuming matching install on {letter}"),
+    );
+    update_progress(
+        state,
+        "Existing install matches this USB. Starting Ollama",
+        80,
+    );
+    activate_staged(state, &letter, &staging)
+}
+
+pub fn setup_fingerprint(state: &AppState) -> String {
+    let settings = state.settings.lock().clone();
+    let runtime_sig = file_signature(&state.usb_root.join("runtime"));
+    let model_sig = if settings.portable_mode {
+        file_signature(&state.usb_root.join("model"))
+    } else {
+        "usb-model".into()
+    };
+    format!(
+        "{}|{}|{}|{}",
+        settings.model_name, settings.portable_mode, runtime_sig, model_sig
+    )
+}
+
+fn file_signature(root: &Path) -> String {
+    if !root.exists() {
+        return "missing".into();
+    }
+    let mut rows = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let rel = entry
+            .path()
+            .strip_prefix(root)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        rows.push(format!("{rel}:{len}"));
+    }
+    rows.sort();
+    let mut hash: u64 = 1469598103934665603;
+    for row in &rows {
+        for byte in row.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(1099511628211);
+        }
+        hash ^= 0xff;
+    }
+    format!("{hash:x}:{}", rows.len())
+}
+
+fn read_manifest(path: &Path) -> Option<Manifest> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
 }
 
 pub fn remove_model(state: &AppState) -> Result<RuntimeInfo, String> {

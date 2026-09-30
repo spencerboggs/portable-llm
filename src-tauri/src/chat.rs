@@ -23,6 +23,7 @@ pub struct ChatStreamEvent {
     pub delta: String,
     pub done: bool,
     pub error: Option<String>,
+    pub reset: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,7 +58,7 @@ pub fn build_system_prompt(state: &AppState, user_message: &str) -> String {
     }
     parts.push(tools::tool_definitions(internet));
     parts.push(
-        "App rules override personality.md. Never change PATH, registry, services, or global environment variables."
+        "App rules override personality.md. Never change PATH, registry, services, or global environment variables. Internet access is a Settings toggle, not a permanent block."
             .into(),
     );
 
@@ -129,15 +130,22 @@ pub fn send_chat(
     let message_id = assistant_placeholder.id.clone();
     let conversation_id = conversation.id.clone();
 
+    conversations::save_conversation(&state.usb_root, &conversation)?;
+    let _ = app.emit("chat-started", &conversation);
+
+    let internet = state.settings.lock().internet_enabled;
     let mut full = String::new();
     let mut tool_rounds = 0;
 
     loop {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "model": model,
             "messages": ollama_messages,
             "stream": true,
         });
+        if internet {
+            body["tools"] = tools::ollama_tool_specs();
+        }
 
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(600))
@@ -157,6 +165,7 @@ pub fn send_chat(
         }
 
         full.clear();
+        let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
         let mut buffer = String::new();
         use std::io::Read;
         let mut byte_buf = [0u8; 4096];
@@ -170,6 +179,7 @@ pub fn send_chat(
                         delta: String::new(),
                         done: true,
                         error: Some("Generation stopped.".into()),
+                        reset: false,
                     },
                 );
                 break;
@@ -187,11 +197,15 @@ pub fn send_chat(
                     continue;
                 }
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&line) {
+                    let calls = tool_calls_from_chunk(&json);
+                    if !calls.is_empty() {
+                        tool_calls = calls;
+                    }
                     if let Some(content) = json
                         .pointer("/message/content")
                         .and_then(|v| v.as_str())
                     {
-                        if !content.is_empty() {
+                        if !content.is_empty() && tool_calls.is_empty() {
                             full.push_str(content);
                             let _ = app.emit(
                                 "chat-stream",
@@ -201,6 +215,7 @@ pub fn send_chat(
                                     delta: content.to_string(),
                                     done: false,
                                     error: None,
+                                    reset: false,
                                 },
                             );
                         }
@@ -209,24 +224,62 @@ pub fn send_chat(
             }
         }
 
-        if let Some(tool_req) = extract_tool_call(&full) {
-            if tool_rounds >= 3 {
-                break;
+        if tool_calls.is_empty() {
+            if let Some(parsed) = extract_tool_call(&full) {
+                tool_calls.push(parsed);
             }
+        }
+
+        if !tool_calls.is_empty() && tool_rounds < 3 && internet {
             tool_rounds += 1;
-            logging::info(&state.usb_root, format!("Handling tool {}", tool_req.name));
-            let result = tools::execute_tool(state, tool_req);
+            logging::info(
+                &state.usb_root,
+                format!(
+                    "Handling tools: {}",
+                    tool_calls
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
+            let _ = app.emit(
+                "chat-stream",
+                ChatStreamEvent {
+                    conversation_id: conversation_id.clone(),
+                    message_id: message_id.clone(),
+                    delta: String::new(),
+                    done: false,
+                    error: None,
+                    reset: true,
+                },
+            );
+            let spec: Vec<serde_json::Value> = tool_calls
+                .iter()
+                .map(|call| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": call.arguments
+                        }
+                    })
+                })
+                .collect();
             ollama_messages.push(serde_json::json!({
                 "role": "assistant",
-                "content": full
+                "content": "",
+                "tool_calls": spec
             }));
-            ollama_messages.push(serde_json::json!({
-                "role": "user",
-                "content": format!(
-                    "Tool result ({}):\n{}\n\nContinue answering the user using this result. Do not claim system changes were made.",
-                    result.name, result.content
-                )
-            }));
+            for call in tool_calls {
+                let result = tools::execute_tool(state, call);
+                ollama_messages.push(serde_json::json!({
+                    "role": "tool",
+                    "tool_name": result.name,
+                    "content": result.content
+                }));
+            }
+            full.clear();
             continue;
         }
 
@@ -249,6 +302,7 @@ pub fn send_chat(
             delta: String::new(),
             done: true,
             error: None,
+            reset: false,
         },
     );
 
@@ -263,6 +317,39 @@ pub fn send_chat(
         conversation,
         assistant_message,
     })
+}
+
+fn tool_calls_from_chunk(json: &serde_json::Value) -> Vec<ToolCallRequest> {
+    let Some(calls) = json
+        .pointer("/message/tool_calls")
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+    calls
+        .iter()
+        .filter_map(|call| {
+            let name = call
+                .pointer("/function/name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                return None;
+            }
+            let raw = call
+                .pointer("/function/arguments")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            let arguments = match raw {
+                serde_json::Value::String(text) => serde_json::from_str(&text)
+                    .unwrap_or(serde_json::json!({ "query": text })),
+                other => other,
+            };
+            Some(ToolCallRequest { name, arguments })
+        })
+        .collect()
 }
 
 fn extract_tool_call(text: &str) -> Option<ToolCallRequest> {

@@ -8,11 +8,13 @@ export function ChatView({
   runtime,
   conversation,
   onConversationChange,
+  onGeneratingChange,
   onSaveScript,
 }: {
   runtime: RuntimeInfo;
   conversation: Conversation | null;
   onConversationChange: (c: Conversation | null | ((prev: Conversation | null) => Conversation | null)) => void;
+  onGeneratingChange: (conversationId: string | null) => void;
   onSaveScript: (filename: string, content: string) => void;
 }) {
   const [input, setInput] = useState("");
@@ -32,20 +34,34 @@ export function ChatView({
       const payload = event.payload;
       onConversationChange((prev) => {
         if (!prev || prev.id !== payload.conversationId) return prev;
-        const messages = prev.messages.map((m) =>
-          m.id === payload.messageId ? { ...m, content: m.content + payload.delta } : m,
-        );
+        const messages = prev.messages.map((m) => {
+          if (m.id !== payload.messageId) return m;
+          return {
+            ...m,
+            content: payload.reset ? payload.delta : m.content + payload.delta,
+          };
+        });
         return { ...prev, messages };
       });
       if (payload.done) {
         setStreaming(false);
+        onGeneratingChange(null);
         if (payload.error) setError(payload.error);
       }
     }).then((fn) => {
       unlisten = fn;
     });
-    return () => unlisten?.();
-  }, [onConversationChange]);
+    let unlistenStarted: (() => void) | undefined;
+    void listen<Conversation>("chat-started", (event) => {
+      onConversationChange(event.payload);
+    }).then((fn) => {
+      unlistenStarted = fn;
+    });
+    return () => {
+      unlisten?.();
+      unlistenStarted?.();
+    };
+  }, [onConversationChange, onGeneratingChange]);
 
   async function send(regenerate = false) {
     if (runtime.status !== "running") {
@@ -65,6 +81,47 @@ export function ChatView({
       onConversationChange(conv);
     }
 
+    const now = new Date().toISOString();
+    const title =
+      !regenerate && (conv.title === "New chat" || conv.title.trim() === "")
+        ? clipTitle(message)
+        : conv.title;
+    const history = [...conv.messages];
+    if (regenerate) {
+      for (let i = history.length - 1; i >= 0; i -= 1) {
+        if (history[i].role === "assistant") {
+          history.splice(i, 1);
+          break;
+        }
+      }
+    }
+    const optimistic: Conversation = {
+      ...conv,
+      title,
+      updatedAt: now,
+      messages: [
+        ...history,
+        ...(regenerate
+          ? []
+          : [
+              {
+                id: `pending-user-${now}`,
+                role: "user",
+                content: message,
+                createdAt: now,
+              },
+            ]),
+        {
+          id: `pending-assistant-${now}`,
+          role: "assistant",
+          content: "",
+          createdAt: now,
+        },
+      ],
+    };
+    onConversationChange(optimistic);
+    onGeneratingChange(conv.id);
+
     try {
       const result = await api.sendChat({
         conversationId: conv.id,
@@ -76,6 +133,7 @@ export function ChatView({
       setError(String(e));
     } finally {
       setStreaming(false);
+      onGeneratingChange(null);
     }
   }
 
@@ -94,8 +152,18 @@ export function ChatView({
             </div>
           </div>
         ) : (
-          conversation.messages.map((m) => (
-            <MessageBubble key={m.id} message={m} onSaveScript={onSaveScript} />
+          conversation.messages.map((m, index) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              generating={
+                streaming &&
+                m.role === "assistant" &&
+                !m.content &&
+                index === conversation.messages.length - 1
+              }
+              onSaveScript={onSaveScript}
+            />
           ))
         )}
         <div ref={bottomRef} />
@@ -154,4 +222,9 @@ export function ChatView({
       </div>
     </div>
   );
+}
+
+function clipTitle(text: string): string {
+  const clipped = text.slice(0, 48);
+  return text.length > 48 ? `${clipped}...` : clipped;
 }

@@ -32,6 +32,7 @@ export default function App() {
   const [pendingScript, setPendingScript] = useState<{ name: string; content: string } | null>(
     null,
   );
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   const refreshConversations = useCallback(async () => {
     const list = await api.listConversations();
@@ -50,7 +51,25 @@ export default function App() {
         setModelLabel(boot.modelLabel);
         setSelectedDrive(boot.settings.preferredDrive);
         await refreshConversations();
+        setRuntime({
+          ...boot.runtime,
+          status: "loading",
+          progressMessage: "Looking for an existing PortableLLM folder",
+          progressPercent: 15,
+        });
         setReady(true);
+        const poll = setInterval(() => {
+          api.getRuntime().then(setRuntime).catch(() => undefined);
+        }, 400);
+        try {
+          const resumed = await api.resumeExisting();
+          setRuntime(resumed);
+          if (resumed.status === "running" && resumed.targetDrive) {
+            setSelectedDrive(resumed.targetDrive);
+          }
+        } finally {
+          clearInterval(poll);
+        }
       } catch (e) {
         setBootError(String(e));
       }
@@ -118,6 +137,7 @@ export default function App() {
           onChange={setView}
           conversations={conversations}
           activeConversationId={activeConversation?.id ?? null}
+          generatingConversationId={generatingId}
           onNewChat={async () => {
             const c = await api.createConversation();
             setActiveConversation(c);
@@ -162,6 +182,7 @@ export default function App() {
               runtime={runtime}
               conversation={activeConversation}
               onConversationChange={handleConversationChange}
+              onGeneratingChange={setGeneratingId}
               onSaveScript={(name, content) => {
                 setPendingScript({ name, content });
                 setView("scripts");

@@ -167,6 +167,9 @@ export function Dashboard({
             ) : (
               <div className="text-sm text-[var(--text-muted)] mt-1">No host installation</div>
             )}
+            {liveRuntime.resumeNote ? (
+              <p className="text-sm text-[var(--warning)] mt-3">{liveRuntime.resumeNote}</p>
+            ) : null}
           </Card>
         </section>
 

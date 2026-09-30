@@ -14,6 +14,7 @@ export function Sidebar({
   onChange,
   conversations,
   activeConversationId,
+  generatingConversationId,
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
@@ -22,6 +23,7 @@ export function Sidebar({
   onChange: (v: ViewId) => void;
   conversations: { id: string; title: string }[];
   activeConversationId: string | null;
+  generatingConversationId: string | null;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -74,7 +76,15 @@ export function Sidebar({
               onChange("chat");
             }}
           >
-            <div className="flex-1 truncate text-sm">{c.title}</div>
+            <div className="flex-1 min-w-0">
+              <div className="truncate text-sm">{c.title}</div>
+              {generatingConversationId === c.id ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--accent)]">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                  Generating
+                </div>
+              ) : null}
+            </div>
             <button
               className="opacity-0 group-hover:opacity-100 text-xs text-[var(--danger)] px-1"
               onClick={(e) => {

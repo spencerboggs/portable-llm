@@ -71,6 +71,23 @@ pub fn get_runtime(state: State<'_, AppState>) -> RuntimeInfo {
 }
 
 #[tauri::command]
+pub async fn resume_existing(app: AppHandle) -> Result<RuntimeInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        staging::resume_existing(state.inner()).map_err(|e| {
+            logging::error(&state.usb_root, &e);
+            let mut rt = state.runtime.lock();
+            rt.status = crate::state::LoadStatus::Error;
+            rt.error = Some(e.clone());
+            rt.progress_message = e.clone();
+            e
+        })
+    })
+    .await
+    .map_err(|e| format!("Resume task failed: {e}"))?
+}
+
+#[tauri::command]
 pub async fn load_model(
     app: AppHandle,
     drive_letter: String,

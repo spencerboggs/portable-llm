@@ -51,6 +51,7 @@ pub struct RuntimeInfo {
     pub error: Option<String>,
     pub ollama_base_url: Option<String>,
     pub using_gpu: Option<bool>,
+    pub resume_note: Option<String>,
 }
 
 impl Default for RuntimeInfo {
@@ -65,6 +66,7 @@ impl Default for RuntimeInfo {
             error: None,
             ollama_base_url: None,
             using_gpu: None,
+            resume_note: None,
         }
     }
 }
@@ -82,6 +84,9 @@ pub struct Manifest {
     pub created_at: String,
     pub portable_mode: bool,
     pub created_paths: Vec<String>,
+    /// Identifies the USB model and settings that produced this host folder.
+    #[serde(default)]
+    pub setup_fingerprint: String,
 }
 
 pub struct AppState {
