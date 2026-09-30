@@ -95,13 +95,13 @@ Swap the sample files in `portable/knowledge/` for your own:
 npm run tauri build
 ```
 
-The exe is usually at:
+The only file you need from that build is:
 
 ```
-src-tauri/target/release/PortableLLM.exe
+src-tauri/target/release/portablellm.exe
 ```
 
-If Tauri also builds installers, ignore those. The flash drive needs the standalone `.exe`.
+`src-tauri/target/` also fills up with Rust build files (`deps`, `.pdb`, `build`). Leave those on the PC. If Tauri makes an installer under `target/release/bundle/`, leave that too. The flash drive gets the one `.exe`, plus the `portable` folders from the next section.
 
 You can test on the PC with `npm run tauri dev` before you fill the USB.
 
@@ -111,7 +111,7 @@ Make a folder on the USB (for example `PortableLLM`) and copy only these:
 
 | From your PC | Onto the USB |
 |--------------|--------------|
-| `src-tauri/target/release/PortableLLM.exe` | `PortableLLM.exe` (next to the folders below) |
+| `src-tauri/target/release/portablellm.exe` | `portablellm.exe` (next to the folders below) |
 | contents of `portable/runtime/` | `runtime/` |
 | contents of `portable/model/` | `model/` |
 | contents of `portable/knowledge/` | `knowledge/` |
@@ -122,7 +122,7 @@ Target layout:
 
 ```
 E:\PortableLLM\          (letter depends on the PC)
-├── PortableLLM.exe
+├── portablellm.exe
 ├── runtime/             Ollama program (exe + lib/dlls)
 │   ├── ollama.exe
 │   └── lib/
@@ -154,7 +154,7 @@ That stuff is only for building.
 ### Run from the stick
 
 1. Plug the USB into a Windows PC.
-2. Open the folder and run `PortableLLM.exe`.
+2. Open the folder and run `portablellm.exe`.
 3. On the Dashboard, pick a host drive with enough free space.
 4. Click **Load Model** and wait for **Running**.
 5. Use Chat, Knowledge, Scripts, or Settings.

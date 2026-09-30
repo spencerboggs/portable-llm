@@ -145,7 +145,9 @@ export default function App() {
               selectedDrive={selectedDrive}
               onSelectDrive={(letter) => {
                 setSelectedDrive(letter);
-                void api.updateSettings({ ...settings, preferredDrive: letter }).then(setSettings);
+                void api
+                  .updateSettings({ ...settings, preferredDrive: letter })
+                  .then(setSettings);
               }}
               onLoaded={(rt) => {
                 setRuntime(rt);

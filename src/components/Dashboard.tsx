@@ -20,7 +20,7 @@ export function Dashboard({
   runtime: RuntimeInfo;
   modelLabel: string;
   selectedDrive: string | null;
-  onSelectDrive: (letter: string) => void;
+  onSelectDrive: (letter: string | null) => void;
   onLoaded: (rt: RuntimeInfo) => void;
   onRemoved: (rt: RuntimeInfo) => void;
   onRefreshDrives: () => void;
@@ -30,8 +30,15 @@ export function Dashboard({
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [liveRuntime, setLiveRuntime] = useState(runtime);
+  const [tracking, setTracking] = useState(false);
 
-  useEffect(() => setLiveRuntime(runtime), [runtime]);
+  const hostDrives = drives.filter(
+    (d) => d.isReady && d.driveType === "Fixed" && !d.isRemovable,
+  );
+
+  useEffect(() => {
+    if (!tracking) setLiveRuntime(runtime);
+  }, [runtime, tracking]);
 
   useEffect(() => {
     if (!selectedDrive) {
@@ -42,12 +49,35 @@ export function Dashboard({
   }, [selectedDrive, runtime.status]);
 
   useEffect(() => {
-    if (liveRuntime.status !== "loading" && liveRuntime.status !== "removing") return;
-    const id = setInterval(() => {
-      api.getRuntime().then(setLiveRuntime).catch(() => undefined);
-    }, 500);
-    return () => clearInterval(id);
-  }, [liveRuntime.status]);
+    if (!selectedDrive || drives.length === 0) return;
+    const allowed = drives.some(
+      (d) =>
+        d.letter === selectedDrive &&
+        d.isReady &&
+        d.driveType === "Fixed" &&
+        !d.isRemovable,
+    );
+    if (!allowed) onSelectDrive(null);
+  }, [selectedDrive, drives, onSelectDrive]);
+
+  useEffect(() => {
+    if (!tracking) return;
+    let cancelled = false;
+    const pull = () => {
+      api
+        .getRuntime()
+        .then((rt) => {
+          if (!cancelled) setLiveRuntime(rt);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const id = setInterval(pull, 400);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [tracking]);
 
   const canLoad =
     !!selectedDrive &&
@@ -63,7 +93,15 @@ export function Dashboard({
   async function handleLoad() {
     if (!selectedDrive) return;
     setBusy(true);
+    setTracking(true);
     setError(null);
+    setLiveRuntime((prev) => ({
+      ...prev,
+      status: "loading",
+      progressPercent: 0,
+      progressMessage: "Preparing...",
+      error: null,
+    }));
     try {
       const rt = await api.loadModel(selectedDrive);
       setLiveRuntime(rt);
@@ -73,6 +111,7 @@ export function Dashboard({
       const rt = await api.getRuntime();
       setLiveRuntime(rt);
     } finally {
+      setTracking(false);
       setBusy(false);
     }
   }
@@ -80,7 +119,14 @@ export function Dashboard({
   async function handleRemove() {
     setConfirmRemove(false);
     setBusy(true);
+    setTracking(true);
     setError(null);
+    setLiveRuntime((prev) => ({
+      ...prev,
+      status: "removing",
+      progressPercent: 10,
+      progressMessage: "Stopping Ollama...",
+    }));
     try {
       const rt = await api.removeModel();
       setLiveRuntime(rt);
@@ -88,6 +134,7 @@ export function Dashboard({
     } catch (e) {
       setError(String(e));
     } finally {
+      setTracking(false);
       setBusy(false);
     }
   }
@@ -177,9 +224,12 @@ export function Dashboard({
             </button>
           </div>
           <div className="grid gap-2">
-            {drives
-              .filter((d) => d.driveType === "Fixed" || d.driveType === "Removable")
-              .map((d) => (
+            {hostDrives.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)]">
+                No fixed drives found. Removable drives, including the flash drive, are hidden.
+              </p>
+            ) : null}
+            {hostDrives.map((d) => (
                 <button
                   key={d.letter}
                   onClick={() => onSelectDrive(d.letter)}
@@ -197,7 +247,6 @@ export function Dashboard({
                       </div>
                       <div className="text-sm text-[var(--text-muted)]">
                         {d.mediaType} · {d.driveType}
-                        {d.isRemovable ? " · Removable" : ""}
                       </div>
                     </div>
                     <div className="text-right text-sm text-[var(--text-muted)]">
@@ -210,13 +259,18 @@ export function Dashboard({
           </div>
         </section>
 
-        {(liveRuntime.status === "loading" || liveRuntime.status === "removing") && (
+        {(tracking ||
+          liveRuntime.status === "loading" ||
+          liveRuntime.status === "removing") && (
           <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-4">
-            <div className="text-sm mb-2">{liveRuntime.progressMessage || "Working..."}</div>
+            <div className="flex justify-between text-sm mb-2 gap-3">
+              <span>{liveRuntime.progressMessage || "Working..."}</span>
+              <span className="text-[var(--text-muted)]">{liveRuntime.progressPercent}%</span>
+            </div>
             <div className="h-2 rounded bg-[#0b1016] overflow-hidden">
               <div
                 className="h-full bg-[var(--accent)] transition-all"
-                style={{ width: `${liveRuntime.progressPercent}%` }}
+                style={{ width: `${Math.min(100, liveRuntime.progressPercent)}%` }}
               />
             </div>
           </section>

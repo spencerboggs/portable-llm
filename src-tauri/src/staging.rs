@@ -1,5 +1,6 @@
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -146,14 +147,26 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
         path_str(&temp_dst),
     ];
 
-    update_progress(state, "Copying runtime", 30);
-    copy_tree(&state.usb_root.join("runtime"), &runtime_dst)?;
+    copy_tree_with_progress(
+        state,
+        &state.usb_root.join("runtime"),
+        &runtime_dst,
+        "Copying runtime",
+        15,
+        35,
+    )?;
     created_paths.push(path_str(&runtime_dst));
 
     let settings = state.settings.lock().clone();
     if settings.portable_mode {
-        update_progress(state, "Copying model", 55);
-        copy_tree(&state.usb_root.join("model"), &model_dst)?;
+        copy_tree_with_progress(
+            state,
+            &state.usb_root.join("model"),
+            &model_dst,
+            "Copying model",
+            35,
+            80,
+        )?;
         created_paths.push(path_str(&model_dst));
     } else {
         // USB-required mode: point to USB model directory via junction/symlink if possible,
@@ -262,30 +275,106 @@ pub fn remove_model(state: &AppState) -> Result<RuntimeInfo, String> {
     Ok(rt.clone())
 }
 
-fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
+struct CopyProgress<'a> {
+    state: &'a AppState,
+    label: &'a str,
+    total: u64,
+    copied: u64,
+    percent_start: u8,
+    percent_end: u8,
+    last_update: Instant,
+}
+
+impl CopyProgress<'_> {
+    fn bump(&mut self, n: u64) {
+        self.copied = self.copied.saturating_add(n);
+        let done = self.total == 0 || self.copied >= self.total;
+        if !done && self.last_update.elapsed() < Duration::from_millis(250) {
+            return;
+        }
+        self.last_update = Instant::now();
+        let span = self.percent_end.saturating_sub(self.percent_start) as f64;
+        let ratio = if self.total == 0 {
+            1.0
+        } else {
+            (self.copied as f64 / self.total as f64).min(1.0)
+        };
+        let percent = (self.percent_start as f64 + span * ratio).round() as u8;
+        let message = format!(
+            "{} {} / {}",
+            self.label,
+            crate::drives::format_bytes(self.copied.min(self.total.max(self.copied))),
+            crate::drives::format_bytes(self.total)
+        );
+        update_progress(self.state, &message, percent.min(self.percent_end));
+    }
+}
+
+fn copy_tree_with_progress(
+    state: &AppState,
+    src: &Path,
+    dst: &Path,
+    label: &str,
+    percent_start: u8,
+    percent_end: u8,
+) -> Result<(), String> {
     if !src.exists() {
         return Err(format!("Source missing: {}", path_str(src)));
     }
     if dst.exists() {
         std::fs::remove_dir_all(dst).map_err(|e| e.to_string())?;
     }
-    std::fs::create_dir_all(dst.parent().unwrap_or(dst)).map_err(|e| e.to_string())?;
-    copy_recursive(src, dst)
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let total = dir_size(src);
+    update_progress(
+        state,
+        &format!("{label} {}", crate::drives::format_bytes(total)),
+        percent_start,
+    );
+    let mut progress = CopyProgress {
+        state,
+        label,
+        total,
+        copied: 0,
+        percent_start,
+        percent_end,
+        last_update: Instant::now() - Duration::from_secs(1),
+    };
+    copy_recursive(src, dst, &mut progress)?;
+    progress.bump(0);
+    Ok(())
 }
 
-fn copy_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+fn copy_recursive(src: &Path, dst: &Path, progress: &mut CopyProgress<'_>) -> Result<(), String> {
     if src.is_file() {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        std::fs::copy(src, dst).map_err(|e| e.to_string())?;
+        copy_file_chunked(src, dst, progress)?;
         return Ok(());
     }
     std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
     for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let target = dst.join(entry.file_name());
-        copy_recursive(&entry.path(), &target)?;
+        copy_recursive(&entry.path(), &target, progress)?;
+    }
+    Ok(())
+}
+
+fn copy_file_chunked(src: &Path, dst: &Path, progress: &mut CopyProgress<'_>) -> Result<(), String> {
+    let mut input = std::fs::File::open(src).map_err(|e| format!("{}: {e}", path_str(src)))?;
+    let mut output = std::fs::File::create(dst).map_err(|e| format!("{}: {e}", path_str(dst)))?;
+    let mut buf = vec![0u8; 1024 * 1024];
+    loop {
+        let n = input.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        output.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        progress.bump(n as u64);
     }
     Ok(())
 }
