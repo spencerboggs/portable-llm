@@ -1,36 +1,39 @@
 # PortableLLM
 
-Run a local LLM from a USB drive on Windows. The stick holds the app, Ollama runtime, model, and your knowledge files. When you plug it into another PC, you pick a drive with enough free space, load a temporary copy there, chat, then remove it. Nothing stays installed in Program Files, and the app does not change PATH, registry, or other system settings.
+A local LLM that runs from a USB drive on Windows. The stick stores the app, Ollama runtime, model, and knowledge files. Plug it into a PC, load onto a drive with enough free space, chat, then remove the temporary host copy when you are done. It does not install into Program Files or change PATH, registry, or other system settings.
+
+Do not put the whole git repo on the flash drive. Build on a normal PC, then copy only the finished app onto the USB.
 
 ## How space works
 
-Two places need disk space:
+You need space in two places:
 
-1. **USB stick** - holds the app, runtime, model, and knowledge for as long as you keep them there.
-2. **Host PC drive** (Load Model) - gets a temporary copy under `<drive>:\PortableLLM\`. That copy is about as large as the runtime + model you put on the USB (plus a small buffer).
+1. **USB stick** - app, runtime, model, and knowledge
+2. **Host PC drive** (when you click Load Model) - temporary copy at `<drive>:\PortableLLM\`
 
-Rule of thumb: if the model + runtime take 5 GB on the USB, you need roughly 5 GB free on the host drive you select. The Dashboard shows required vs available space before you load.
+That host copy is roughly the size of your runtime + model. If those take 5 GB on the USB, plan on about 5 GB free on the host drive. The Dashboard shows required vs available space before you load.
 
-Pick a model that fits the USB you plan to use. Larger models need more USB space and the same amount again (temporarily) on the host.
+Choose a model that fits your USB. Bigger models need more USB space and about the same free space again on the host.
 
 ## Recommended model
 
-**qwen3:4b** (via Ollama) is the default recommendation. It is small enough for typical flash drives and usable for general and programming help.
+**qwen3:4b** through Ollama is the default pick. It fits most flash drives and works for general use and coding help.
 
-You can use any Ollama-compatible model. Change the model name in Settings to match what you placed under `portable/model/`.
+Any Ollama-compatible model works. Set **Model name** in Settings to match what you put in `model/`.
 
-Models are **not** included in this repository. You add them locally after cloning.
+Models are not included in this repository.
 
-## Clone and set up
+## Part 1: Build on your PC
 
-### Requirements
+Do this on a development machine.
+
+Requirements:
 
 - Windows 10/11
-- [Node.js](https://nodejs.org/) (npm included)
-- [Rust](https://rustup.rs/) (stable, MSVC toolchain)
-- A USB drive with enough free space for the app + runtime + model
+- [Node.js](https://nodejs.org/) (includes npm)
+- [Rust](https://rustup.rs/) (stable, MSVC)
 
-### 1. Clone
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/spencerboggs/portable-llm.git
@@ -40,128 +43,169 @@ npm install
 
 ### 2. Add the Ollama runtime
 
-Download a Windows Ollama build from [Ollama releases](https://github.com/ollama/ollama/releases) and place the binary so one of these paths exists:
+Get a Windows build from [Ollama releases](https://github.com/ollama/ollama/releases) and put the binary at:
 
 ```
 portable/runtime/ollama.exe
 ```
 
-or
-
-```
-portable/runtime/bin/ollama.exe
-```
-
-See `portable/runtime/README.md`.
+`portable/runtime/bin/ollama.exe` also works.
 
 ### 3. Add a model
 
-Pull a model with Ollama on any machine, then copy that machine's Ollama models directory contents into:
-
-```
-portable/model/
-```
-
-You typically need `blobs/` and `manifests/` for the model you want.
-
-Example with the recommended model (on a machine that already has Ollama):
+On a machine that already has Ollama:
 
 ```bash
 ollama pull qwen3:4b
 ```
 
-Then copy the models folder into `portable/model/`. Set **Model name** in Settings to `qwen3:4b` (or whatever tag you pulled).
+Copy that machine's Ollama models folder into:
 
-### 4. Edit example knowledge (optional but useful)
+```
+portable/model/
+```
 
-Replace the sample files under `portable/knowledge/` with your own:
+You usually need the `blobs/` and `manifests/` folders for your model.
+
+### 4. Edit knowledge (optional)
+
+Swap the sample files in `portable/knowledge/` for your own:
 
 | File | Purpose |
 |------|---------|
-| `profile.md` | Facts about you (name, languages, interests) |
-| `personality.md` | How the assistant should talk and behave |
-| `programming.md`, `cybersecurity.md`, `custom/` | Extra notes the chat can retrieve |
+| `profile.md` | Facts about you |
+| `personality.md` | How the assistant should behave |
+| `programming.md`, `cybersecurity.md`, `custom/` | Extra notes used in chat |
 
-### 5. Run
-
-```bash
-npm run tauri dev
-```
-
-To build a release binary:
+### 5. Build the app
 
 ```bash
 npm run tauri build
 ```
 
-Put the built app next to the `portable/` folder on the USB (or ship a layout where the exe sits beside `runtime/`, `model/`, `knowledge/`, and `data/`).
+The exe is usually at:
+
+```
+src-tauri/target/release/PortableLLM.exe
+```
+
+If Tauri also builds installers, ignore those. The flash drive needs the standalone `.exe`.
+
+You can test on the PC with `npm run tauri dev` before you fill the USB.
+
+## Part 2: Put it on the flash drive
+
+Make a folder on the USB (for example `PortableLLM`) and copy only these:
+
+| From your PC | Onto the USB |
+|--------------|--------------|
+| `src-tauri/target/release/PortableLLM.exe` | `PortableLLM.exe` (next to the folders below) |
+| contents of `portable/runtime/` | `runtime/` |
+| contents of `portable/model/` | `model/` |
+| contents of `portable/knowledge/` | `knowledge/` |
+| contents of `portable/config/` | `config/` |
+| contents of `portable/data/` | `data/` |
+
+Target layout:
+
+```
+E:\PortableLLM\          (letter depends on the PC)
+├── PortableLLM.exe
+├── runtime/
+│   └── ollama.exe
+├── model/
+│   ├── blobs/
+│   └── manifests/
+├── knowledge/
+│   ├── profile.md
+│   ├── personality.md
+│   └── ...
+├── config/
+└── data/
+    ├── conversations/
+    ├── scripts/
+    └── logs/
+```
+
+Leave these off the USB:
+
+- `src/` and `src-tauri/` (except the built `.exe`)
+- `node_modules/`
+- `.git/`
+- everything else from the repo
+
+That stuff is only for building.
+
+### Run from the stick
+
+1. Plug the USB into a Windows PC.
+2. Open the folder and run `PortableLLM.exe`.
+3. On the Dashboard, pick a host drive with enough free space.
+4. Click **Load Model** and wait for **Running**.
+5. Use Chat, Knowledge, Scripts, or Settings.
+6. Click **Remove Model** when finished. That deletes the host copy. The USB stays intact.
+
+**Portable Mode** (default) copies the model to the host so you can unplug the USB after loading. If you turn it off, keep the stick plugged in.
 
 ## Using the app
 
 ### Dashboard
 
-1. Check CPU / RAM / GPU info.
+1. Check CPU, RAM, and GPU info.
 2. Select a host drive with enough free space.
-3. Click **Load Model**. Progress shows while files copy and Ollama starts.
-4. When status is **Running**, go to Chat.
-5. When finished, click **Remove Model**. That stops Ollama and deletes only `<drive>:\PortableLLM\`. The USB is left alone.
+3. Click **Load Model**.
+4. When status is **Running**, open Chat.
+5. Click **Remove Model** when done. That only deletes `<drive>:\PortableLLM\` on the host.
 
 ### Chat
 
-- Type a message and press Enter (Shift+Enter for a new line).
-- Stop generation if a reply is taking too long.
-- Regenerate the last assistant reply if needed.
-- Code blocks have Copy; use Save to send a snippet to the Scripts page.
-- Chat uses `profile.md`, `personality.md`, and matching knowledge chunks. Inference stays on the local Ollama process.
+- Enter sends. Shift+Enter makes a new line.
+- Use Stop or Regenerate if you need them.
+- Code blocks have Copy. Save sends a snippet to Scripts.
+- Profile, personality, and matching knowledge files go into context. The model runs locally.
 
 ### Knowledge
 
-Open the **Knowledge** page to browse, edit, add, or delete Markdown files under `portable/knowledge/`.
-
-- Edit `profile.md` and `personality.md` for who you are and how the assistant should act.
-- Add notes under `custom/` or other folders for project-specific context.
-- Use **Reload** after bulk file changes outside the app so the search index updates.
+Edit Markdown under `knowledge/` in the app or with any editor on the stick. Click **Reload** if you changed files outside the app.
 
 ### Scripts
 
-The **Scripts** page stores text you save from chat (or paste yourself). Files live under `portable/data/scripts/`.
-
-PortableLLM does **not** run scripts for you. Copy or open the folder and run them yourself if you want.
+Files land in `data/scripts/`. The app does not run them. Open the folder and run them yourself if you want.
 
 ### Settings
 
 | Setting | Meaning |
 |---------|---------|
-| Model name | Ollama model tag (must match what is in `portable/model/`) |
-| Ollama port | Isolated local port (default `11435`, avoids clashing with a normal Ollama on `11434`) |
-| Portable Mode | On by default: copy model to the host so you can unplug the USB while running |
-| Internet tools | Off by default. When on, the app can run controlled `web_search` / `fetch_url` for the model. Chat still works offline. |
+| Model name | Ollama tag matching files in `model/` |
+| Ollama port | Local port for this app (default `11435`) |
+| Portable Mode | Copy model to host so the USB can be removed while running |
+| Internet tools | Optional web tools. Chat still works offline. |
 
 ## Safety
 
-PortableLLM is meant for use on other people's machines as well as your own. It will not:
+This is meant to run on shared or other people's PCs. It will not:
 
 - Change PATH, env vars, registry, services, or drivers
 - Install into Program Files
-- Alter a global Ollama install
-- Auto-execute generated scripts
-- Write outside `<drive>:\PortableLLM\` on the host (aside from normal OS temp behavior tracked for cleanup)
+- Change a global Ollama install
+- Run generated scripts on its own
+- Write outside `<drive>:\PortableLLM\` on the host
 
-If PATH or install steps would help, the assistant can describe them for you to do by hand.
+If you need PATH or install changes, do those yourself. The assistant can tell you what to run, but it will not do it.
 
-## Project layout
+## Repo layout (development)
 
 ```
 portable-llm/
 ├── src/                 # React UI
 ├── src-tauri/           # Rust / Tauri backend
-├── portable/
-│   ├── runtime/         # ollama.exe (you provide)
-│   ├── model/           # Ollama model files (you provide; not in git)
-│   ├── knowledge/       # profile, personality, notes
+├── portable/            # assets you copy to the USB later
+│   ├── runtime/
+│   ├── model/
+│   ├── knowledge/
 │   ├── config/
-│   └── data/            # conversations, scripts, logs, settings
-├── scripts/             # helper scripts
+│   └── data/
+├── scripts/
 └── docs/ARCHITECTURE.md
 ```
 
