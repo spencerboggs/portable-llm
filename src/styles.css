@@ -1,0 +1,75 @@
+@import "tailwindcss";
+@import "highlight.js/styles/github-dark.min.css";
+
+:root {
+  --bg: #0f1419;
+  --bg-elevated: #171d25;
+  --bg-sidebar: #12181f;
+  --border: #2a3441;
+  --text: #e8eef6;
+  --text-muted: #8b9bb0;
+  --accent: #3d9cfd;
+  --accent-dim: #2563a8;
+  --success: #3ecf8e;
+  --danger: #f07178;
+  --warning: #e6c07b;
+  --user-bubble: #1e3a5f;
+  --assistant-bubble: #1a222c;
+  font-family: "Segoe UI", "IBM Plex Sans", system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: radial-gradient(1200px 600px at 10% -10%, #1a2740 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #152018 0%, transparent 50%), var(--bg);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prose pre {
+  background: #0b1016;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+}
+
+.prose code {
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.prose :not(pre) > code {
+  background: #243041;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
