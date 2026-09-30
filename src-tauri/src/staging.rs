@@ -149,7 +149,7 @@ pub fn load_model(state: &AppState, drive_letter: &str) -> Result<RuntimeInfo, S
     update_progress(state, "Checking storage", 5);
 
     if staging.exists() {
-        // Reuse only if it belongs to us; otherwise refuse to clobber.
+        crate::ollama::stop_processes_in(&staging);
         let manifest_path = staging.join("manifest.json");
         if !manifest_path.exists() {
             return Err(format!(

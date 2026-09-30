@@ -261,4 +261,5 @@ Rules enforced by the application (follow them):
 - Give complete working code when asked for programming help.
 - Stay concise and accurate.
 - Separate facts from guesses.
+- Do not use emojis, emoticons, or decorative symbols.
 "#;

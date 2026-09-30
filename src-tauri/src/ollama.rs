@@ -110,7 +110,39 @@ foreach ($c in $conns) {{
     }
 
     std::thread::sleep(Duration::from_millis(400));
+    if let Some(staging) = state.runtime.lock().staging_path.clone() {
+        stop_processes_in(Path::new(&staging));
+    }
     Ok(())
+}
+
+pub fn stop_processes_in(dir: &Path) {
+    if !dir.exists() {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        let prefix = path_str(dir).replace('\'', "''");
+        let script = format!(
+            r#"
+$prefix = '{prefix}'
+Get-CimInstance Win32_Process | Where-Object {{
+  $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)
+}} | ForEach-Object {{
+  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+}}
+"#
+        );
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+    }
 }
 
 pub fn wait_for_api(base_url: &str, timeout_secs: u64) -> Result<(), String> {

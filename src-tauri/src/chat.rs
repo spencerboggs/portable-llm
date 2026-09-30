@@ -58,7 +58,7 @@ pub fn build_system_prompt(state: &AppState, user_message: &str) -> String {
     }
     parts.push(tools::tool_definitions(internet));
     parts.push(
-        "App rules override personality.md. Never change PATH, registry, services, or global environment variables. Internet access is a Settings toggle, not a permanent block."
+        "App rules override personality.md. Never change PATH, registry, services, or global environment variables. Internet access is a Settings toggle, not a permanent block. Never use emojis."
             .into(),
     );
 
@@ -125,6 +125,29 @@ pub fn send_chat(
         }));
     }
 
+    let internet = state.settings.lock().internet_enabled;
+    if tools::asks_about_internet(&user_text) {
+        let note = if internet {
+            format!(
+                "The user is asking whether internet access works. The app already checked.\n{}\nAnswer in one or two plain sentences based on that result. Do not use emojis. Do not describe page source, scripts, or unrelated code.",
+                tools::probe_internet()
+            )
+        } else {
+            "The user is asking about internet access. Internet tools are off. Tell them they can turn internet tools on in the Settings tab. Do not use emojis. Do not say internet is permanently blocked.".into()
+        };
+        ollama_messages.push(serde_json::json!({
+            "role": "user",
+            "content": note
+        }));
+    }
+
+    if let Some(note) = tools::stock_lookup_note(&user_text, internet) {
+        ollama_messages.push(serde_json::json!({
+            "role": "user",
+            "content": note
+        }));
+    }
+
     let assistant_placeholder =
         conversations::append_message(&mut conversation, "assistant", "");
     let message_id = assistant_placeholder.id.clone();
@@ -133,7 +156,6 @@ pub fn send_chat(
     conversations::save_conversation(&state.usb_root, &conversation)?;
     let _ = app.emit("chat-started", &conversation);
 
-    let internet = state.settings.lock().internet_enabled;
     let mut full = String::new();
     let mut tool_rounds = 0;
 
@@ -206,13 +228,17 @@ pub fn send_chat(
                         .and_then(|v| v.as_str())
                     {
                         if !content.is_empty() && tool_calls.is_empty() {
-                            full.push_str(content);
+                            let content = strip_emoji(content);
+                            if content.is_empty() {
+                                continue;
+                            }
+                            full.push_str(&content);
                             let _ = app.emit(
                                 "chat-stream",
                                 ChatStreamEvent {
                                     conversation_id: conversation_id.clone(),
                                     message_id: message_id.clone(),
-                                    delta: content.to_string(),
+                                    delta: content,
                                     done: false,
                                     error: None,
                                     reset: false,
@@ -288,7 +314,7 @@ pub fn send_chat(
 
     if let Some(msg) = conversation.messages.last_mut() {
         if msg.id == message_id {
-            msg.content = full.clone();
+            msg.content = strip_emoji(&full);
         }
     }
 
@@ -317,6 +343,22 @@ pub fn send_chat(
         conversation,
         assistant_message,
     })
+}
+
+fn strip_emoji(text: &str) -> String {
+    text.chars().filter(|c| !is_emoji(*c)).collect()
+}
+
+fn is_emoji(c: char) -> bool {
+    let u = c as u32;
+    matches!(
+        u,
+        0x200D
+            | 0xFE0E
+            | 0xFE0F
+            | 0x2600..=0x27BF
+            | 0x1F000..=0x1FAFF
+    )
 }
 
 fn tool_calls_from_chunk(json: &serde_json::Value) -> Vec<ToolCallRequest> {
