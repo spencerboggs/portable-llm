@@ -1,12 +1,23 @@
-﻿# Model store
+﻿# Model
 
-Put Ollama model files here (contents of an Ollama models directory).
+This folder is model data only. No program and no source code.
 
-Usual layout:
+After `ollama pull qwen3:4b` (or another tag), copy the Ollama models directory into this folder. That is usually:
 
-- `blobs/`
-- `manifests/`
+```
+%USERPROFILE%\.ollama\models
+```
+
+Expected result:
+
+```
+model/
+├── blobs/
+└── manifests/
+```
 
 Default model name in Settings: `qwen3:4b`
 
-Model files are large and are not committed to git. See the root README for setup steps.
+Do not put `ollama.exe` here. That belongs in `runtime/`.
+
+Model files are large and are not committed to git.

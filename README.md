@@ -43,15 +43,25 @@ npm install
 
 ### 2. Add the Ollama runtime
 
-Get a Windows build from [Ollama releases](https://github.com/ollama/ollama/releases) and put the binary at:
+`portable/runtime/` is the Ollama **program**, not source code and not the model.
+
+Download the Windows zip from [Ollama releases](https://github.com/ollama/ollama/releases) (the amd64 zip, not the installer). Unzip the **whole** zip into `portable/runtime/` so `ollama.exe` sits there with the `lib` folder and DLLs that came with it.
 
 ```
-portable/runtime/ollama.exe
+portable/runtime/
+├── ollama.exe
+└── lib/
+    └── ollama/
+        └── ...dlls
 ```
 
-`portable/runtime/bin/ollama.exe` also works.
+Do not clone the Ollama git repo into this folder. Do not put model files here.
+
+The target PC does not need Ollama installed. Load Model copies this folder onto the host drive and starts `ollama.exe` from there.
 
 ### 3. Add a model
+
+`portable/model/` is only the model data. No program, no source code.
 
 On a machine that already has Ollama:
 
@@ -59,13 +69,15 @@ On a machine that already has Ollama:
 ollama pull qwen3:4b
 ```
 
-Copy that machine's Ollama models folder into:
+Find that machine's Ollama models directory (often `%USERPROFILE%\.ollama\models`) and copy its contents into `portable/model/`:
 
 ```
 portable/model/
+├── blobs/
+└── manifests/
 ```
 
-You usually need the `blobs/` and `manifests/` folders for your model.
+Do not copy `ollama.exe` into `model/`. Do not put the Ollama source tree here. Set **Model name** in Settings to the tag you pulled (`qwen3:4b`).
 
 ### 4. Edit knowledge (optional)
 
@@ -111,9 +123,10 @@ Target layout:
 ```
 E:\PortableLLM\          (letter depends on the PC)
 ├── PortableLLM.exe
-├── runtime/
-│   └── ollama.exe
-├── model/
+├── runtime/             Ollama program (exe + lib/dlls)
+│   ├── ollama.exe
+│   └── lib/
+├── model/               model files only
 │   ├── blobs/
 │   └── manifests/
 ├── knowledge/
@@ -126,6 +139,8 @@ E:\PortableLLM\          (letter depends on the PC)
     ├── scripts/
     └── logs/
 ```
+
+The other computer does not need Node, Rust, or a preinstalled Ollama. It needs Windows. GPU use needs whatever graphics drivers are already on that PC. If there is no supported GPU, the model still runs on CPU.
 
 Leave these off the USB:
 
@@ -143,9 +158,11 @@ That stuff is only for building.
 3. On the Dashboard, pick a host drive with enough free space.
 4. Click **Load Model** and wait for **Running**.
 5. Use Chat, Knowledge, Scripts, or Settings.
-6. Click **Remove Model** when finished. That deletes the host copy. The USB stays intact.
+6. Click **Remove Model** before you leave. That stops Ollama and deletes the host folder `<drive>:\PortableLLM\`. The USB is not deleted.
 
-**Portable Mode** (default) copies the model to the host so you can unplug the USB after loading. If you turn it off, keep the stick plugged in.
+Unplugging the stick does not remove that host folder by itself. Use **Remove Model** if you want the other PC left as you found it.
+
+**Portable Mode** (default) copies the model onto the host drive, so the USB can come out after loading. If you turn Portable Mode off, keep the stick plugged in while you chat.
 
 ## Using the app
 

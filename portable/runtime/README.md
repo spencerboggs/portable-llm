@@ -1,13 +1,23 @@
-﻿# Ollama runtime
+﻿# Runtime
 
-Put a portable Windows `ollama.exe` here.
+This folder is the Ollama Windows program, not source code and not the model.
 
-Accepted paths:
+Download the Windows zip from https://github.com/ollama/ollama/releases and unzip all of it here.
 
-- `portable/runtime/ollama.exe`
-- `portable/runtime/bin/ollama.exe`
+Expected result:
 
-Do not install Ollama into Program Files through this app.
+```
+runtime/
+├── ollama.exe
+└── lib/
+    └── ollama/
+```
+
+`bin/ollama.exe` is also accepted if the rest of the zip is next to it.
+
+Do not put the Ollama git repository here.
+Do not put model blobs here.
+Do not install Ollama into Program Files.
 Do not change the host PATH.
 
-This folder's binaries are gitignored except this README.
+Binaries in this folder are gitignored. This README is the only file that stays in git.
